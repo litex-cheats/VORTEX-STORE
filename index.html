@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VORTEXX STORE</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    
+    <style>
+        :root { --bg: #050505; --accent: #25f4ee; --card: #121212; --gray: #1e1e1e; --whatsapp: #25d366; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: var(--bg); color: #fff; padding-bottom: 90px; }
+        header { width: 100%; padding: 20px 0; text-align: center; border-bottom: 1px solid var(--gray); background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 1000; }
+        .logo { font-weight: 900; font-size: 22px; color: var(--accent); letter-spacing: 5px; text-transform: uppercase; }
+        
+        .view { display: none; width: 100%; max-width: 450px; margin: auto; padding: 15px; box-sizing: border-box; }
+        .active { display: block; }
+
+        /* PRODUCTOS */
+        #product-list { display: flex; flex-direction: column; gap: 15px; }
+        .product-card { background: var(--card); border-radius: 20px; border: 1px solid var(--gray); display: flex; padding: 10px; align-items: center; gap: 15px; }
+        .product-card img { width: 100px; height: 100px; object-fit: cover; border-radius: 15px; }
+        .p-info { flex: 1; }
+        .p-info b { font-size: 20px; color: var(--accent); display: block; }
+        .btn-ws { background: var(--whatsapp); color: #000; border: none; padding: 12px; border-radius: 50%; cursor: pointer; font-size: 20px; }
+
+        /* ADMIN */
+        .admin-card { background: #0f0f0f; border: 1px solid var(--gray); border-radius: 20px; padding: 20px; margin-bottom: 20px; }
+        input, textarea { width: 100%; padding: 12px; margin: 8px 0; border-radius: 10px; border: 1px solid #333; background: #1a1a1a; color: #fff; box-sizing: border-box; }
+        .btn-action { background: var(--accent); color: #000; border: none; padding: 15px; border-radius: 10px; font-weight: bold; width: 100%; cursor: pointer; margin-top: 10px; }
+
+        /* NAV */
+        nav { position: fixed; bottom: 0; width: 100%; height: 75px; background: rgba(0,0,0,0.9); display: flex; border-top: 1px solid var(--gray); }
+        .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; color: #666; cursor: pointer; }
+        .nav-btn.on { color: var(--accent); }
+
+        /* LOGIN */
+        .pin-overlay { position: fixed; inset: 0; background: #000; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 5000; }
+    </style>
+</head>
+<body>
+
+<header><div class="logo">VORTEXX</div></header>
+
+<div id="v-home" class="view active">
+    <div id="product-list">Cargando tienda...</div>
+</div>
+
+<div id="v-admin" class="view">
+    <div class="admin-card">
+        <h4>📦 Nuevo Producto</h4>
+        <input type="text" id="p-name" placeholder="Nombre del artículo">
+        <input type="number" id="p-price" placeholder="Precio ($)">
+        <input type="file" id="p-file" accept="image/*">
+        <button class="btn-action" onclick="publishProduct()">PUBLICAR PRODUCTO</button>
+    </div>
+
+    <div class="admin-card">
+        <h4>👥 Agregar Contacto / Vendedor</h4>
+        <input type="text" id="v-name" placeholder="Nombre (ej: Juan)">
+        <input type="number" id="v-num" placeholder="WhatsApp (ej: 521...)">
+        <button class="btn-action" style="background:#fff" onclick="addVendedor()">GUARDAR CONTACTO</button>
+        <div id="v-list" style="margin-top:10px; font-size:12px; color:gray;"></div>
+    </div>
+    
+    <div id="manage-list"></div>
+</div>
+
+<div id="login-box" class="pin-overlay">
+    <div id="pin-dots" style="font-size:35px; color:var(--accent); letter-spacing:10px;">____</div>
+    <div id="keypad" style="display:grid; grid-template-columns:repeat(3, 75px); gap:15px; margin-top:30px;"></div>
+</div>
+
+<nav>
+    <div class="nav-btn on" id="n-home" onclick="ir('home')">🛒<br>TIENDA</div>
+    <div class="nav-btn" id="n-admin" onclick="openLogin()">⚙️<br>ADMIN</div>
+</nav>
+
+<script>
+    // TUS CREDENCIALES
+    const firebaseConfig = {
+      apiKey: "AIzaSyDBRspG1Xh4I_HMcE8mLeDZOuqWhWzBk5I",
+      authDomain: "vortexx-825b7.firebaseapp.com",
+      databaseURL: "https://vortexx-825b7-default-rtdb.firebaseio.com",
+      projectId: "vortexx-825b7",
+      storageBucket: "vortexx-825b7.firebasestorage.app",
+      messagingSenderId: "781910882406",
+      appId: "1:781910882406:web:3ef1ccc509878668a2d5a7"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function ir(v) {
+        document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('on'));
+        document.getElementById('v-'+v).classList.add('active');
+        document.getElementById('n-'+v).classList.add('on');
+    }
+
+    // --- LÓGICA DE COMPRA (Elegir Vendedor) ---
+    function comprar(pNombre) {
+        db.ref('vendedores').once('value', (snap) => {
+            const vends = snap.val();
+            if(!vends) return alert("El admin no ha configurado números de contacto.");
+            
+            let lista = Object.values(vends);
+            let msg = "Selecciona con quién quieres comprar " + pNombre + ":\n\n";
+            lista.forEach((v, i) => msg += (i+1) + ". " + v.nombre + "\n");
+            
+            let r = prompt(msg);
+            if(r > 0 && r <= lista.length) {
+                let s = lista[r-1];
+                window.open(`https://wa.me/${s.numero}?text=Hola%20${s.nombre},%20me%20interesa%20${pNombre}`);
+            }
+        });
+    }
+
+    // --- LEER DATOS ---
+    db.ref('productos').on('value', (snap) => {
+        const data = snap.val();
+        let html = ""; let mHtml = "";
+        if(data) {
+            Object.keys(data).forEach(id => {
+                const p = data[id];
+                html += `<div class="product-card">
+                    <img src="${p.img}">
+                    <div class="p-info"><b>$${p.price}</b><span>${p.name}</span></div>
+                    <button class="btn-ws" onclick="comprar('${p.name}')">📩</button>
+                </div>`;
+                mHtml += `<div style="padding:10px; border-bottom:1px solid #222;">${p.name} <button onclick="db.ref('productos/${id}').remove()" style="color:red; background:none; border:none;">Eliminar</button></div>`;
+            });
+        }
+        document.getElementById('product-list').innerHTML = html || "Sin productos.";
+        document.getElementById('manage-list').innerHTML = "<br><h4>Inventario</h4>" + mHtml;
+    });
+
+    // --- FUNCIONES ADMIN ---
+    function publishProduct() {
+        const name = document.getElementById('p-name').value;
+        const price = document.getElementById('p-price').value;
+        const file = document.getElementById('p-file').files[0];
+        if(!file || !name) return alert("Faltan datos");
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            db.ref('productos').push({ name, price, img: e.target.result });
+            alert("Publicado");
+            ir('home');
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function addVendedor() {
+        const nombre = document.getElementById('v-name').value;
+        const numero = document.getElementById('v-num').value;
+        if(nombre && numero) {
+            db.ref('vendedores').push({ nombre, numero });
+            alert("Vendedor guardado");
+            document.getElementById('v-name').value = "";
+            document.getElementById('v-num').value = "";
+        }
+    }
+
+    // --- SISTEMA PIN ---
+    let pin = "";
+    function openLogin() { document.getElementById('login-box').style.display='flex'; pin=""; updateDots(); }
+    const keys = [1,2,3,4,5,6,7,8,9,'C',0,'✕'];
+    keys.forEach(k => {
+        let b = document.createElement('button');
+        b.innerText = k; b.style = "height:70px; width:70px; border-radius:50%; background:#111; color:#fff; border:1px solid #333; font-size:20px;";
+        b.onclick = () => {
+            if(k === '✕') document.getElementById('login-box').style.display='none';
+            else if(k === 'C') pin = "";
+            else {
+                pin += k;
+                if(pin === "2012") { document.getElementById('login-box').style.display='none'; ir('admin'); }
+                if(pin.length >= 4 && pin !== "2012") pin = "";
+            }
+            updateDots();
+        };
+        document.getElementById('keypad').appendChild(b);
+    });
+    function updateDots() { document.getElementById('pin-dots').innerText = "*".repeat(pin.length) + "_".repeat(4-pin.length); }
+</script>
+</body>
+</html>
